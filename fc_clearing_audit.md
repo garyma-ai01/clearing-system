@@ -109,12 +109,46 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 
 ---
 
-## API响应示例
+## API设计
 
-### 1. 查询列表
+### 1. 查询审计日志列表
 `GET /clearing/audit/list`
 
-**参数**: module, action, taskId, orgId, period, severity, status
+**请求参数**:
+
+| 参数名 | 类型 | 必填 | 说明 | 示例 |
+|-------|------|------|------|------|
+| `module` | String | 否 | 模块过滤 | EXPENSE/ORDER/TASK/CLEARING/ORG |
+| `action` | String | 否 | 操作动作过滤 | AGGREGATE/ALLOCATE/OCCUPY/EXECUTE |
+| `taskId` | Long | 否 | 任务ID | 1001 |
+| `orderId` | Long | 否 | 订单ID | 5001 |
+| `orgId` | String | 否 | 组织ID | 0001A21000000000LZD6 |
+| `period` | String | 否 | 期间（YYYYMM） | 202411 |
+| `severity` | String | 否 | 严重级别 | INFO/SUCCESS/WARNING/ERROR/CRITICAL |
+| `status` | String | 否 | 执行状态 | SUCCESS/ERROR |
+| `startTime` | String | 否 | 开始时间（>=） | 2024-11-01 00:00:00 |
+| `endTime` | String | 否 | 结束时间（<=） | 2024-11-30 23:59:59 |
+| `pageNum` | Integer | 否 | 页码（默认1） | 1 |
+| `pageSize` | Integer | 否 | 每页条数（默认10） | 20 |
+
+**常用查询示例**:
+
+```bash
+# 查询所有费用模块的错误日志
+GET /clearing/audit/list?module=EXPENSE&status=ERROR
+
+# 查询某个任务的所有审计日志
+GET /clearing/audit/list?taskId=1001
+
+# 查询某个组织某个期间的所有日志
+GET /clearing/audit/list?orgId=0001A21000000000LZD6&period=202411
+
+# 查询所有严重错误
+GET /clearing/audit/list?severity=CRITICAL
+
+# 查询最近一周的错误日志
+GET /clearing/audit/list?status=ERROR&startTime=2024-11-06&endTime=2024-11-13
+```
 
 **响应**:
 ```json
@@ -144,8 +178,16 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 }
 ```
 
-### 2. 费用占用失败详情
+### 2. 查询审计日志详情
 `GET /clearing/audit/{id}`
+
+**路径参数**:
+
+| 参数名 | 类型 | 必填 | 说明 | 示例 |
+|-------|------|------|------|------|
+| `id` | Long | 是 | 审计日志ID | 12346 |
+
+**响应示例（费用占用失败）**:
 
 ```json
 {
@@ -212,8 +254,7 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 }
 ```
 
-### 3. 清分任务执行失败详情
-`GET /clearing/audit/{id}`
+### 3. 响应示例（清分任务执行失败）
 
 ```json
 {
@@ -288,8 +329,7 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 }
 ```
 
-### 4. 费用归集成功
-`GET /clearing/audit/{id}`
+### 4. 响应示例（费用归集成功）
 
 ```json
 {
