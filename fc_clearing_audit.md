@@ -339,7 +339,7 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 
 ---
 
-## 错误代码（基于真实业务场景）
+## 错误代码
 
 ### 费用模块（EXPENSE）
 
@@ -375,12 +375,4 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 |---------|----------|------|------------|
 | `CLR_AMOUNT_MISMATCH` | CRITICAL | 清分金额不一致 | 清分结果金额校验失败：订单金额50000.00元，清分金额55000.00元，差异5000.00元 |
 | `CLR_RESULT_DUPLICATE` | ERROR | 清分结果重复 | 订单1001已存在清分结果 |
-
-### 系统级错误（SYS）
-
-| 错误代码 | Severity | 说明 | 用户提示示例 |
-|---------|----------|------|------------|
-| `SYS_DATABASE_ERROR` | CRITICAL | 数据库异常 | 系统错误：数据库连接失败，请联系管理员 |
-| `SYS_CONCURRENT_UPDATE` | ERROR | 并发更新冲突 | 数据已被其他用户修改，请刷新后重试 |
-
 
