@@ -14,9 +14,9 @@ CREATE TABLE fc_audit (
     
     -- 业务标识
     module VARCHAR(50) NOT NULL,          -- 模块：EXPENSE/ORDER/TASK/CLEARING/ORG
-    business_type VARCHAR(50) NOT NULL,   -- 业务类型：AGGREGATE/ALLOCATE/OCCUPY/CANCEL/EXECUTE/CREATE/UPDATE/DELETE
-    business_id VARCHAR(100),             -- 业务主键ID（通用字段，可存task_id/order_id/expense_id等）
-    business_name VARCHAR(200),           -- 业务名称（通用字段，可存task_name/order_no/org_name等）
+    action VARCHAR(50) NOT NULL,          -- 操作动作：AGGREGATE/ALLOCATE/OCCUPY/CANCEL/EXECUTE/CREATE/UPDATE/DELETE
+    subject_id VARCHAR(100),              -- 业务主键ID（通用字段，可存task_id/order_id/expense_id/period等）
+    subject_name VARCHAR(200),            -- 业务对象名称（通用字段，可存task_name/order_no/org_name等）
     
     -- 关联标识（冗余字段，方便查询）
     task_id BIGINT,                       -- 清分任务ID
@@ -60,8 +60,8 @@ CREATE TABLE fc_audit (
 );
 
 -- 索引
-CREATE INDEX idx_audit_module_type ON fc_audit(module, business_type);
-CREATE INDEX idx_audit_business_id ON fc_audit(business_id);
+CREATE INDEX idx_audit_module_action ON fc_audit(module, action);
+CREATE INDEX idx_audit_subject_id ON fc_audit(subject_id);
 CREATE INDEX idx_audit_task_id ON fc_audit(task_id);
 CREATE INDEX idx_audit_order_id ON fc_audit(order_id);
 CREATE INDEX idx_audit_org_period ON fc_audit(org_id, period);
@@ -83,7 +83,7 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 | **CLEARING** | 清分结果模块（生成清分结果） |
 | **ORG** | 组织模块（组织/规则/路由配置） |
 
-### Business Type（业务类型）
+### Action（操作动作）
 
 | 值 | 说明 | 适用模块 |
 |----|------|---------|
@@ -114,7 +114,7 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 ### 1. 查询列表
 `GET /clearing/audit/list`
 
-**参数**: module, businessType, taskId, orgId, period, severity, status
+**参数**: module, action, taskId, orgId, period, severity, status
 
 **响应**:
 ```json
@@ -125,9 +125,9 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
     {
       "id": 12346,
       "module": "EXPENSE",
-      "businessType": "OCCUPY",
-      "businessId": "1001",
-      "businessName": "202404期间费用占用",
+      "action": "OCCUPY",
+      "subjectId": "1001",
+      "subjectName": "202404期间费用占用",
       "taskId": 1001,
       "orgId": "0001A21000000000LZD6",
       "orgName": "鲜道源（自营）",
@@ -154,9 +154,9 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
     "id": 12346,
     
     "module": "EXPENSE",
-    "businessType": "OCCUPY",
-    "businessId": "1001",
-    "businessName": "202404期间费用占用",
+    "action": "OCCUPY",
+    "subjectId": "1001",
+    "subjectName": "202404期间费用占用",
     
     "taskId": 1001,
     "orderId": 5001,
@@ -222,9 +222,9 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
     "id": 12350,
     
     "module": "CLEARING",
-    "businessType": "EXECUTE",
-    "businessId": "1005",
-    "businessName": "PT202240114001",
+    "action": "EXECUTE",
+    "subjectId": "1005",
+    "subjectName": "PT202240114001",
     
     "taskId": 1005,
     "orgId": "0001A21000000000LZD6",
@@ -298,9 +298,9 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
     "id": 12347,
     
     "module": "EXPENSE",
-    "businessType": "AGGREGATE",
-    "businessId": "202511",
-    "businessName": "202511期间费用归集",
+    "action": "AGGREGATE",
+    "subjectId": "202511",
+    "subjectName": "202511期间费用归集",
     
     "taskId": null,
     "orderId": null,
