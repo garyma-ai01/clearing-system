@@ -366,19 +366,48 @@ CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 
 ---
 
-## 错误代码
+## 错误代码（基于真实业务场景）
 
-| 错误代码 | Severity | 说明 |
-|---------|----------|------|
-| `EXP_INSUFFICIENT_AMOUNT` | ERROR | 费用可用金额不足 |
-| `EXP_PERIOD_NOT_FOUND` | ERROR | 期间不存在或未归集 |
-| `EXP_NOT_AGGREGATED` | ERROR | 费用未归集 |
-| `ORD_NOT_FOUND` | ERROR | 订单不存在 |
-| `ORD_ALREADY_OCCUPIED` | ERROR | 订单已被占用 |
-| `TASK_NOT_FOUND` | ERROR | 清分任务不存在 |
-| `TASK_STATUS_INVALID` | ERROR | 任务状态不合法 |
-| `ORG_NOT_FOUND` | ERROR | 组织不存在 |
-| `VALIDATE_AMOUNT_MISMATCH` | CRITICAL | 金额校验不通过 |
-| `SYS_DATABASE_ERROR` | CRITICAL | 数据库异常 |
+### 费用模块（EXPENSE）
+
+| 错误代码 | Severity | 说明 | 用户提示示例 |
+|---------|----------|------|------------|
+| `EXP_INSUFFICIENT_AMOUNT` | ERROR | 费用可用金额不足 | 可用金额不足，需要10000.00元，可用8387.10元，缺口1612.90元 |
+| `EXP_PERIOD_NOT_FOUND` | ERROR | 期间不存在或未归集 | 期间202411不存在，请先执行费用归集 |
+
+### 订单模块（ORDER）
+
+| 错误代码 | Severity | 说明 | 用户提示示例 |
+|---------|----------|------|------------|
+| `ORD_NOT_FOUND` | ERROR | 订单不存在 | 订单1001不存在或已删除 |
+| `ORD_ALREADY_OCCUPIED` | ERROR | 订单已被占用 | 订单P20241115001已被任务100占用，无法重复清分 |
+
+### 清分任务模块（TASK）
+
+| 错误代码 | Severity | 说明 | 用户提示示例 |
+|---------|----------|------|------------|
+| `TASK_ROUTE_MISSING` | ERROR | 任务缺少路由配置 | 组织0001A21000000000LZD6缺少清分路由配置 |
+| `TASK_EXECUTE_FAILED` | CRITICAL | 任务执行失败 | 清分任务执行失败：5个节点计算失败 |
+
+### 组织路由/规则模块（ORG）
+
+| 错误代码 | Severity | 说明 | 用户提示示例 |
+|---------|----------|------|------------|
+| `ORG_NOT_FOUND` | ERROR | 组织不存在 | 组织0001A21000000000LZD6不存在 |
+| `ORG_RULE_NOT_FOUND` | ERROR | 组织规则不存在 | 组织0001A21000000000LZD6未配置清分规则 |
+
+### 清分结果模块（CLEARING）
+
+| 错误代码 | Severity | 说明 | 用户提示示例 |
+|---------|----------|------|------------|
+| `CLR_AMOUNT_MISMATCH` | CRITICAL | 清分金额不一致 | 清分结果金额校验失败：订单金额50000.00元，清分金额55000.00元，差异5000.00元 |
+| `CLR_RESULT_DUPLICATE` | ERROR | 清分结果重复 | 订单1001已存在清分结果 |
+
+### 系统级错误（SYS）
+
+| 错误代码 | Severity | 说明 | 用户提示示例 |
+|---------|----------|------|------------|
+| `SYS_DATABASE_ERROR` | CRITICAL | 数据库异常 | 系统错误：数据库连接失败，请联系管理员 |
+| `SYS_CONCURRENT_UPDATE` | ERROR | 并发更新冲突 | 数据已被其他用户修改，请刷新后重试 |
 
 
