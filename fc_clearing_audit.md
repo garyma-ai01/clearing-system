@@ -1,31 +1,4 @@
-# fc_audit 通用审计日志设计
-
-## 系统模块分析
-
-清分系统包含以下核心fc_*模块：
-
-| 模块 | 表名 | 说明 |
-|-----|------|------|
-| **EXPENSE** | fc_expense | 费用归集汇总表 |
-| | fc_expense_allocate | 费用分摊明细表（按天） |
-| | fc_expense_usage | 费用占用记录表 |
-| **ORDER** | fc_order | 订单表 |
-| | fc_order_item | 订单明细表 |
-| **TASK** | fc_task | 清分任务表 |
-| | fc_task_order | 任务订单关联表 |
-| | fc_task_route_node | 任务路由节点 |
-| | fc_task_rule_sub | 任务规则明细 |
-| **CLEARING** | fc_clearing_order | 清分结果订单表 |
-| | fc_clearing_order_item | 清分结果订单明细 |
-| **ORG** | fc_org | 组织主体表 |
-| | fc_org_rule | 组织规则表 |
-| | fc_org_rule_sub | 组织规则明细 |
-| | fc_org_route | 组织路由表 |
-| | fc_org_route_node | 组织路由节点 |
-| | fc_org_fix_month_fee | 组织固定月费 |
-| | fc_org_fix_fee_usage | 组织固定费用使用 |
-
----
+# fc_audit 审计日志设计
 
 ## 表结构设计
 
