@@ -1,449 +1,384 @@
-# FC Clearing Audit System
+# fc_audit 通用审计日志设计
 
-## Table Structure
+## 系统模块分析
 
-### fc_clearing_audit
+清分系统包含以下核心fc_*模块：
 
-清分流程审计表，记录清分流程每一步的操作、异常和数据不一致情况。
+| 模块 | 表名 | 说明 |
+|-----|------|------|
+| **EXPENSE** | fc_expense | 费用归集汇总表 |
+| | fc_expense_allocate | 费用分摊明细表（按天） |
+| | fc_expense_usage | 费用占用记录表 |
+| **ORDER** | fc_order | 订单表 |
+| | fc_order_item | 订单明细表 |
+| **TASK** | fc_task | 清分任务表 |
+| | fc_task_order | 任务订单关联表 |
+| | fc_task_route_node | 任务路由节点 |
+| | fc_task_rule_sub | 任务规则明细 |
+| **CLEARING** | fc_clearing_order | 清分结果订单表 |
+| | fc_clearing_order_item | 清分结果订单明细 |
+| **ORG** | fc_org | 组织主体表 |
+| | fc_org_rule | 组织规则表 |
+| | fc_org_rule_sub | 组织规则明细 |
+| | fc_org_route | 组织路由表 |
+| | fc_org_route_node | 组织路由节点 |
+| | fc_org_fix_month_fee | 组织固定月费 |
+| | fc_org_fix_fee_usage | 组织固定费用使用 |
 
-**主要字段：**
+---
 
-| 字段名 | 类型 | 说明 | 示例 |
-|--------|------|------|------|
-| audit_id | bigint | 主键 | 1 |
-| flow_step | varchar(50) | 流程步骤代码 | AGGREGATE |
-| flow_step_desc | varchar(50) | 流程步骤描述 | 聚合 |
-| operation_type | varchar(50) | 操作类型代码 | SUCCESS |
-| operation_type_desc | varchar(50) | 操作类型描述 | 成功 |
-| status | varchar(20) | 状态代码 | COMPLETED |
-| status_desc | varchar(50) | 状态描述 | 已完成 |
-| period | varchar(20) | 业务期间(YYYYMM) | 202511 |
-| source_period | varchar(20) | 源期间(用于ALLOCATE) | 202510 |
-| target_period | varchar(20) | 目标期间(用于ALLOCATE) | 202511 |
-| org_id | varchar(255) | 主体ID | ORG001 |
-| org_name | varchar(255) | 主体名称 | 测试组织 |
-| task_id | bigint | 清分任务ID | 1001 |
-| input_params | text | 输入参数JSON | {"period":"202511","source_count":150} |
-| output_summary | text | 输出结果JSON | {"fc_expense_count":12,"gl_total":50000.00} |
-| validation_results | text | 验证结果JSON | {"amount_match":true,"gl_calculation_valid":true} |
-| warning_messages | text | 警告信息JSON数组 | ["未找到期间 202511 的费用数据"] |
-| error_message | text | 错误消息 | 占用金额必须大于0 |
-| error_code | varchar(50) | 错误代码 | VALIDATION_FAILED |
-| error_code_desc | varchar(50) | 错误代码描述 | 验证失败 |
-| trigger_source | varchar(50) | 触发来源代码 | API |
-| trigger_source_desc | varchar(50) | 触发来源描述 | API调用 |
-| records_processed | int | 处理的记录数 | 150 |
-| records_success | int | 成功处理的记录数 | 148 |
-| amount_total | numeric(20,2) | 总金额 | 50000.00 |
-| execution_time_ms | bigint | 执行耗时(毫秒) | 1250 |
+## 表结构设计
 
-## Enum Values
+```sql
+-- =============================================
+-- 通用审计日志表（覆盖所有fc_*模块）
+-- =============================================
 
-### FlowStep (流程步骤)
-- `AGGREGATE` / `聚合` - 从interface_expense聚合到fc_expense
-- `ALLOCATE` / `拆分` - 从fc_expense拆分到fc_expense_allocate
-- `OCCUPY` / `占用` - 占用费用
-- `CANCEL` / `撤销` - 撤销占用
+DROP TABLE IF EXISTS fc_audit CASCADE;
 
-### OperationType (操作类型)
-- `SUCCESS` / `成功` - 操作成功完成
-- `WARNING` / `警告` - 操作完成但有警告
-- `ERROR` / `错误` - 操作失败
-- `DATA_INCONSISTENCY` / `数据不一致` - 数据不一致
+CREATE TABLE fc_audit (
+    id BIGSERIAL PRIMARY KEY,
+    
+    -- 业务标识
+    module VARCHAR(50) NOT NULL,          -- 模块：EXPENSE/ORDER/TASK/CLEARING/ORG
+    business_type VARCHAR(50) NOT NULL,   -- 业务类型：AGGREGATE/ALLOCATE/OCCUPY/CANCEL/EXECUTE/CREATE/UPDATE/DELETE
+    business_id VARCHAR(100),             -- 业务主键ID（通用字段，可存task_id/order_id/expense_id等）
+    business_name VARCHAR(200),           -- 业务名称（通用字段，可存task_name/order_no/org_name等）
+    
+    -- 关联标识（冗余字段，方便查询）
+    task_id BIGINT,                       -- 清分任务ID
+    order_id BIGINT,                      -- 订单ID
+    org_id VARCHAR(50),                   -- 组织ID
+    org_name VARCHAR(200),                -- 组织名称
+    period VARCHAR(6),                    -- 期间（YYYYMM）
+    
+    -- 操作信息
+    operation_type VARCHAR(50),           -- 操作类型：START/PROCESS/COMPLETE/VALIDATE
+    status VARCHAR(20) NOT NULL,          -- 执行状态：SUCCESS/ERROR
+    severity VARCHAR(20),                 -- 严重级别：INFO/SUCCESS/WARNING/ERROR/CRITICAL（UI根据此决定样式）
+    
+    -- 统计
+    records_processed INT,                -- 处理记录总数
+    records_success INT,                  -- 成功记录数
+    records_failed INT,                   -- 失败记录数
+    
+    -- 金额
+    amount_total NUMERIC(20, 2),          -- 总金额（期望处理的总金额）
+    amount_actual NUMERIC(20, 2),         -- 实际金额（实际处理成功的金额）
+    amount_difference NUMERIC(20, 2),     -- 差异金额（= amount_actual - amount_total）
+    
+    -- 错误信息
+    error_code VARCHAR(50),               -- 错误代码（如：EXP_INSUFFICIENT_AMOUNT）
+    error_message TEXT,                   -- 技术错误信息（供开发排查）
+    user_message TEXT,                    -- 用户友好提示（前端直接显示）
+    stack_trace TEXT,                     -- 异常堆栈（仅开发调试）
+    
+    -- 明细（JSON）
+    detail_items TEXT,                    -- 明细列表JSON数组（前端直接渲染表格，仅失败记录）
+    
+    -- 执行信息
+    execution_time_ms BIGINT,             -- 执行耗时（毫秒）
+    start_time TIMESTAMP,                 -- 开始执行时间
+    end_time TIMESTAMP,                   -- 结束执行时间
+    
+    -- 审计
+    create_by VARCHAR(50) DEFAULT 'system',
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-### Status (状态)
-- `PENDING` / `待处理` - 待处理
-- `COMPLETED` / `已完成` - 已完成
-- `FAILED` / `失败` - 失败
-
-### TriggerSource (触发来源)
-- `API` / `API调用` - API调用
-- `QUARTZ` / `定时任务` - 定时任务
-- `MANUAL` / `手动触发` - 手动触发
-
-### ErrorCode (错误代码)
-- `INSUFFICIENT_FUNDS` / `资金不足` - 可用金额不足
-- `VALIDATION_FAILED` / `验证失败` - 验证失败
-- `MISSING_RECORDS` / `记录不存在` - 记录不存在
-- `CALCULATION_ERROR` / `计算错误` - 计算错误
-- `DATA_INCONSISTENCY` / `数据不一致` - 数据不一致
-
-## Example Data
-
-### Example 1: AGGREGATE - SUCCESS
-
-```json
-{
-  "auditId": 1,
-  "flowStep": "AGGREGATE",
-  "flowStepDesc": "聚合",
-  "operationType": "SUCCESS",
-  "operationTypeDesc": "成功",
-  "status": "COMPLETED",
-  "statusDesc": "已完成",
-  "period": "202511",
-  "triggerSource": "API",
-  "triggerSourceDesc": "API调用",
-  "inputParams": "{\"period\":\"202511\",\"source_count\":150}",
-  "outputSummary": "{\"fc_expense_count\":12,\"gl_total\":50000.00,\"detail_sum\":50000.00}",
-  "validationResults": "{\"amount_match\":true,\"gl_calculation_valid\":true,\"all_subjects_present\":true}",
-  "recordsProcessed": 150,
-  "recordsSuccess": 12,
-  "amountTotal": 50000.00,
-  "amountExpected": 50000.00,
-  "amountActual": 50000.00,
-  "executionTimeMs": 1250,
-  "createTime": "2025-11-11 10:00:00"
-}
+-- 索引
+CREATE INDEX idx_audit_module_type ON fc_audit(module, business_type);
+CREATE INDEX idx_audit_business_id ON fc_audit(business_id);
+CREATE INDEX idx_audit_task_id ON fc_audit(task_id);
+CREATE INDEX idx_audit_order_id ON fc_audit(order_id);
+CREATE INDEX idx_audit_org_period ON fc_audit(org_id, period);
+CREATE INDEX idx_audit_severity ON fc_audit(severity);
+CREATE INDEX idx_audit_create_time ON fc_audit(create_time DESC);
 ```
 
-### Example 2: AGGREGATE - WARNING
+---
 
-```json
-{
-  "auditId": 2,
-  "flowStep": "AGGREGATE",
-  "flowStepDesc": "聚合",
-  "operationType": "WARNING",
-  "operationTypeDesc": "警告",
-  "status": "COMPLETED",
-  "statusDesc": "已完成",
-  "period": "202512",
-  "triggerSource": "API",
-  "triggerSourceDesc": "API调用",
-  "inputParams": "{\"period\":\"202512\",\"source_count\":0}",
-  "outputSummary": "{\"gl_total\":0,\"fc_expense_count\":0,\"detail_sum\":0}",
-  "validationResults": "{\"amount_match\":true,\"gl_calculation_valid\":true,\"all_subjects_present\":true}",
-  "warningMessages": "[\"未找到期间 202512 的费用数据\"]",
-  "recordsProcessed": 0,
-  "recordsSuccess": 0,
-  "recordsWarning": 1,
-  "amountTotal": 0,
-  "executionTimeMs": 50,
-  "createTime": "2025-11-11 10:05:00"
-}
-```
+## 模块和业务类型枚举
 
-### Example 3: ALLOCATE - SUCCESS
+### Module（模块）
 
-```json
-{
-  "auditId": 3,
-  "flowStep": "ALLOCATE",
-  "flowStepDesc": "拆分",
-  "operationType": "SUCCESS",
-  "operationTypeDesc": "成功",
-  "status": "COMPLETED",
-  "statusDesc": "已完成",
-  "sourcePeriod": "202510",
-  "targetPeriod": "202511",
-  "period": "202511",
-  "triggerSource": "QUARTZ",
-  "triggerSourceDesc": "定时任务",
-  "inputParams": "{\"source_period\":\"202510\",\"target_period\":\"202511\",\"days_count\":30}",
-  "outputSummary": "{\"allocate_records\":372,\"total_amount\":50000.00,\"daily_sum\":50000.00,\"deleted_existing\":0}",
-  "validationResults": "{\"daily_sum_match\":true,\"precision_loss\":false,\"expected_days\":30,\"actual_records\":372}",
-  "recordsProcessed": 372,
-  "recordsSuccess": 372,
-  "amountTotal": 50000.00,
-  "amountExpected": 50000.00,
-  "amountActual": 50000.00,
-  "executionTimeMs": 850,
-  "createTime": "2025-11-11 11:00:00"
-}
-```
+| 值 | 说明 |
+|----|------|
+| **EXPENSE** | 费用模块（归集/分摊/占用/撤销） |
+| **ORDER** | 订单模块（创建/更新/删除/校验） |
+| **TASK** | 清分任务模块（创建/执行/取消） |
+| **CLEARING** | 清分结果模块（生成清分结果） |
+| **ORG** | 组织模块（组织/规则/路由配置） |
 
-### Example 4: OCCUPY - ERROR
+### Business Type（业务类型）
 
-```json
-{
-  "auditId": 4,
-  "flowStep": "OCCUPY",
-  "flowStepDesc": "占用",
-  "operationType": "ERROR",
-  "operationTypeDesc": "错误",
-  "status": "FAILED",
-  "statusDesc": "失败",
-  "orgId": "ORG001",
-  "orgName": "测试组织",
-  "taskId": 1001,
-  "triggerSource": "API",
-  "triggerSourceDesc": "API调用",
-  "inputParams": "{\"task_id\":1001,\"org_id\":\"ORG001\",\"amount\":10000.00}",
-  "dataSnapshot": "{\"before\":{\"total_available\":5000.00}}",
-  "validationResults": "{\"sufficient_funds\":false,\"amount_match\":false}",
-  "errorMessage": "可用金额不足，总可用: 5000.00, 需要: 10000.00",
-  "errorCode": "INSUFFICIENT_FUNDS",
-  "errorCodeDesc": "资金不足",
-  "amountTotal": 10000.00,
-  "amountExpected": 10000.00,
-  "amountActual": 0,
-  "executionTimeMs": 15,
-  "createTime": "2025-11-11 12:00:00"
-}
-```
+| 值 | 说明 | 适用模块 |
+|----|------|---------|
+| **AGGREGATE** | 归集 | EXPENSE |
+| **ALLOCATE** | 分摊 | EXPENSE |
+| **OCCUPY** | 占用 | EXPENSE |
+| **CANCEL** | 撤销/取消 | EXPENSE, TASK |
+| **EXECUTE** | 执行 | TASK, CLEARING |
+| **CREATE** | 创建 | ORDER, TASK, ORG |
+| **UPDATE** | 更新 | ORDER, ORG |
+| **DELETE** | 删除 | ORDER, ORG |
+| **VALIDATE** | 校验 | ALL |
 
-### Example 5: OCCUPY - SUCCESS
+### Severity（严重级别）
 
-```json
-{
-  "auditId": 5,
-  "flowStep": "OCCUPY",
-  "flowStepDesc": "占用",
-  "operationType": "SUCCESS",
-  "operationTypeDesc": "成功",
-  "status": "COMPLETED",
-  "statusDesc": "已完成",
-  "orgId": "ORG001",
-  "orgName": "测试组织",
-  "taskId": 1002,
-  "triggerSource": "API",
-  "triggerSourceDesc": "API调用",
-  "inputParams": "{\"task_id\":1002,\"org_id\":\"ORG001\",\"amount\":3000.00}",
-  "dataSnapshot": "{\"before\":{\"total_available\":5000.00}}",
-  "outputSummary": "{\"usage_records\":3,\"actual_occupied\":3000.00}",
-  "validationResults": "{\"sufficient_funds\":true,\"amount_match\":true}",
-  "recordsProcessed": 3,
-  "recordsSuccess": 3,
-  "amountTotal": 3000.00,
-  "amountExpected": 3000.00,
-  "amountActual": 3000.00,
-  "executionTimeMs": 120,
-  "createTime": "2025-11-11 12:05:00"
-}
-```
+| 值 | 说明 | UI建议颜色 |
+|----|------|-----------|
+| **INFO** | 信息 | 蓝色 |
+| **SUCCESS** | 成功 | 绿色 |
+| **WARNING** | 警告 | 橙色 |
+| **ERROR** | 错误 | 红色 |
+| **CRITICAL** | 严重错误 | 深红色 |
 
-### Example 6: CANCEL - SUCCESS
+---
 
-```json
-{
-  "auditId": 6,
-  "flowStep": "CANCEL",
-  "flowStepDesc": "撤销",
-  "operationType": "SUCCESS",
-  "operationTypeDesc": "成功",
-  "status": "COMPLETED",
-  "statusDesc": "已完成",
-  "taskId": 1002,
-  "triggerSource": "API",
-  "triggerSourceDesc": "API调用",
-  "inputParams": "{\"task_id\":1002}",
-  "outputSummary": "{\"cancelled_records\":3,\"restored_amount\":3000.00}",
-  "recordsProcessed": 3,
-  "recordsSuccess": 3,
-  "executionTimeMs": 80,
-  "createTime": "2025-11-11 12:10:00"
-}
-```
+## API响应示例
 
-### Example 7: CANCEL - WARNING
+### 1. 查询列表
+`GET /clearing/audit/list`
 
-```json
-{
-  "auditId": 7,
-  "flowStep": "CANCEL",
-  "flowStepDesc": "撤销",
-  "operationType": "WARNING",
-  "operationTypeDesc": "警告",
-  "status": "COMPLETED",
-  "statusDesc": "已完成",
-  "taskId": 9999,
-  "triggerSource": "API",
-  "triggerSourceDesc": "API调用",
-  "inputParams": "{\"task_id\":9999}",
-  "outputSummary": "{\"cancelled_records\":0,\"restored_amount\":0}",
-  "warningMessages": "[\"没有找到需要撤销的占用记录\"]",
-  "recordsProcessed": 0,
-  "recordsSuccess": 0,
-  "executionTimeMs": 10,
-  "createTime": "2025-11-11 12:15:00"
-}
-```
+**参数**: module, businessType, taskId, orgId, period, severity, status
 
-## Controller API Design
-
-### Base URL
-```
-/clearing/audit
-```
-
-### 1. Query Audit List
-
-**Endpoint:** `GET /clearing/audit/list`
-
-**Description:** 查询审计记录列表，支持分页和多种过滤条件
-
-**Query Parameters:**
-
-| 参数名 | 类型 | 必填 | 说明 | 示例 |
-|--------|------|------|------|------|
-| pageNum | int | 否 | 页码，默认1 | 1 |
-| pageSize | int | 否 | 每页数量，默认10 | 10 |
-| flowStep | string | 否 | 流程步骤过滤 | AGGREGATE |
-| operationType | string | 否 | 操作类型过滤 | SUCCESS |
-| status | string | 否 | 状态过滤 | COMPLETED |
-| period | string | 否 | 期间过滤(YYYYMM) | 202511 |
-| orgId | string | 否 | 主体ID过滤 | ORG001 |
-| taskId | long | 否 | 任务ID过滤 | 1001 |
-| startTime | string | 否 | 开始时间 | 2025-11-01 00:00:00 |
-| endTime | string | 否 | 结束时间 | 2025-11-11 23:59:59 |
-
-**Response:**
-
+**响应**:
 ```json
 {
   "code": 200,
-  "msg": "查询成功",
-  "total": 50,
+  "total": 156,
   "rows": [
     {
-      "auditId": "1",
-      "flowStep": "AGGREGATE",
-      "flowStepDesc": "聚合",
-      "operationType": "SUCCESS",
-      "operationTypeDesc": "成功",
-      "status": "COMPLETED",
-      "statusDesc": "已完成",
-      "period": "202511",
-      "triggerSource": "API",
-      "triggerSourceDesc": "API调用",
-      "recordsProcessed": 150,
-      "recordsSuccess": 12,
-      "amountTotal": 50000.00,
-      "executionTimeMs": 1250,
-      "createTime": "2025-11-11 10:00:00"
+      "id": 12346,
+      "module": "EXPENSE",
+      "businessType": "OCCUPY",
+      "businessId": "1001",
+      "businessName": "202404期间费用占用",
+      "taskId": 1001,
+      "orgId": "0001A21000000000LZD6",
+      "orgName": "鲜道源（自营）",
+      "period": "202404",
+      "status": "ERROR",
+      "severity": "ERROR",
+      "userMessage": "可用金额不足，缺口5000.00元",
+      "recordsProcessed": 31,
+      "recordsFailed": 3,
+      "executionTimeMs": 125,
+      "createTime": "2024-10-10 14:30:15"
     }
   ]
 }
 ```
 
-**Example Request:**
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/list?pageNum=1&pageSize=10&flowStep=AGGREGATE&operationType=SUCCESS"
-```
-
-### 2. Get Audit Detail
-
-**Endpoint:** `GET /clearing/audit/{auditId}`
-
-**Description:** 获取审计记录详细信息
-
-**Path Parameters:**
-
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| auditId | long | 是 | 审计记录ID |
-
-**Response:**
+### 2. 费用占用失败详情
+`GET /clearing/audit/{id}`
 
 ```json
 {
   "code": 200,
-  "msg": "操作成功",
   "data": {
-    "auditId": "1",
-    "flowStep": "AGGREGATE",
-    "flowStepDesc": "聚合",
-    "operationType": "SUCCESS",
-    "operationTypeDesc": "成功",
-    "status": "COMPLETED",
-    "statusDesc": "已完成",
+    "id": 12346,
+    
+    "module": "EXPENSE",
+    "businessType": "OCCUPY",
+    "businessId": "1001",
+    "businessName": "202404期间费用占用",
+    
+    "taskId": 1001,
+    "orderId": 5001,
+    "orgId": "0001A21000000000LZD6",
+    "orgName": "鲜道源（自营）",
+    "period": "202404",
+    
+    "operationType": "PROCESS",
+    "status": "ERROR",
+    "severity": "ERROR",
+    
+    "recordsProcessed": 31,
+    "recordsSuccess": 28,
+    "recordsFailed": 3,
+    
+    "amountTotal": 10000.00,
+    "amountActual": 8387.10,
+    "amountDifference": -1612.90,
+    
+    "errorCode": "EXP_INSUFFICIENT_AMOUNT",
+    "errorMessage": "Available amount insufficient: need 10000.00, available 8387.10, gap 1612.90",
+    "userMessage": "可用金额不足。需要：10000.00元，可用：8387.10元，缺口：1612.90元",
+    "stackTrace": "com.yzt.clearing.exception.InsufficientAmountException...",
+    
+    "detailItems": [
+      {
+        "date": "2024-04-03",
+        "expenseType": "GL",
+        "allocateId": 1003,
+        "amount": 1451.61,
+        "availableAmount": 0.00,
+        "status": "error",
+        "message": "可用金额不足"
+      },
+      {
+        "date": "2024-04-04",
+        "expenseType": "GL",
+        "allocateId": 1004,
+        "amount": 1451.61,
+        "availableAmount": 500.00,
+        "status": "error",
+        "message": "可用金额不足"
+      }
+    ],
+    
+    "executionTimeMs": 125,
+    "startTime": "2024-10-10 14:30:15",
+    "endTime": "2024-10-10 14:30:15",
+    
+    "createBy": "admin",
+    "createTime": "2024-10-10 14:30:15"
+  }
+}
+```
+
+### 3. 清分任务执行失败详情
+`GET /clearing/audit/{id}`
+
+```json
+{
+  "code": 200,
+  "data": {
+    "id": 12350,
+    
+    "module": "CLEARING",
+    "businessType": "EXECUTE",
+    "businessId": "1005",
+    "businessName": "PT202240114001",
+    
+    "taskId": 1005,
+    "orgId": "0001A21000000000LZD6",
+    "orgName": "鲜道源（自营）",
+    "period": "202401",
+    
+    "operationType": "PROCESS",
+    "status": "ERROR",
+    "severity": "CRITICAL",
+    
+    "recordsProcessed": 15,
+    "recordsSuccess": 10,
+    "recordsFailed": 5,
+    
+    "amountTotal": 150000.00,
+    "amountActual": 0.00,
+    "amountDifference": -150000.00,
+    
+    "errorCode": "TASK_EXECUTE_FAILED",
+    "errorMessage": "Multiple calculation rules failed: CALC_ERROR_002, DB_TIMEOUT_001, CALC_RRHCM_002",
+    "userMessage": "清分任务执行失败，5条规则计算失败，请检查规则配置和数据完整性",
+    "stackTrace": "com.yzt.clearing.exception.TaskExecutionException...",
+    
+    "detailItems": [
+      {
+        "ruleId": "RULE_001",
+        "ruleName": "费用分摊规则",
+        "ruleType": "CALC_ERROR_002",
+        "status": "error",
+        "time": "2024-01-14 10:30:12",
+        "message": "计算超时：规则执行超过30秒限制",
+        "affectedOrders": 25
+      },
+      {
+        "ruleId": "RULE_003",
+        "ruleName": "订单金额校验",
+        "ruleType": "DB_TIMEOUT_001",
+        "status": "error",
+        "time": "2024-01-14 10:30:15",
+        "message": "数据库连接超时：查询订单金额时超时",
+        "affectedOrders": 10
+      },
+      {
+        "ruleId": "RULE_007",
+        "ruleName": "路由计算规则",
+        "ruleType": "CALC_RRHCM_002",
+        "status": "error",
+        "time": "2024-01-14 10:30:20",
+        "message": "路由配置缺失：组织0001A21000000000LZD6缺少路由规则",
+        "affectedOrders": 8
+      }
+    ],
+    
+    "executionTimeMs": 35200,
+    "startTime": "2024-01-14 10:30:00",
+    "endTime": "2024-01-14 10:30:35",
+    
+    "createBy": "system",
+    "createTime": "2024-01-14 10:30:35"
+  }
+}
+```
+
+### 4. 费用归集成功
+`GET /clearing/audit/{id}`
+
+```json
+{
+  "code": 200,
+  "data": {
+    "id": 12347,
+    
+    "module": "EXPENSE",
+    "businessType": "AGGREGATE",
+    "businessId": "202511",
+    "businessName": "202511期间费用归集",
+    
+    "taskId": null,
+    "orderId": null,
+    "orgId": "0001A21000000000LZD6",
+    "orgName": "鲜道源（自营）",
     "period": "202511",
-    "triggerSource": "API",
-    "triggerSourceDesc": "API调用",
-    "inputParams": "{\"period\":\"202511\",\"source_count\":150}",
-    "outputSummary": "{\"fc_expense_count\":12,\"gl_total\":50000.00,\"detail_sum\":50000.00}",
-    "validationResults": "{\"amount_match\":true,\"gl_calculation_valid\":true}",
-    "recordsProcessed": 150,
-    "recordsSuccess": 12,
-    "amountTotal": 50000.00,
-    "amountExpected": 50000.00,
-    "amountActual": 50000.00,
-    "executionTimeMs": 1250,
-    "createTime": "2025-11-11 10:00:00",
-    "createBy": "system"
+    
+    "operationType": "COMPLETE",
+    "status": "SUCCESS",
+    "severity": "SUCCESS",
+    
+    "recordsProcessed": 6,
+    "recordsSuccess": 6,
+    "recordsFailed": 0,
+    
+    "amountTotal": 45000.00,
+    "amountActual": 45000.00,
+    "amountDifference": 0.00,
+    
+    "errorCode": null,
+    "errorMessage": null,
+    "userMessage": "费用归集成功，共处理6条记录，生成GL总账45000.00元",
+    "stackTrace": null,
+    
+    "detailItems": null,
+    
+    "executionTimeMs": 280,
+    "startTime": "2024-11-13 10:15:30",
+    "endTime": "2024-11-13 10:15:31",
+    
+    "createBy": "system",
+    "createTime": "2024-11-13 10:15:31"
   }
 }
 ```
 
-**Example Request:**
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/1"
-```
+---
 
-### 3. Get Audit Statistics
+## 错误代码
 
-**Endpoint:** `GET /clearing/audit/statistics`
+| 错误代码 | Severity | 说明 |
+|---------|----------|------|
+| `EXP_INSUFFICIENT_AMOUNT` | ERROR | 费用可用金额不足 |
+| `EXP_PERIOD_NOT_FOUND` | ERROR | 期间不存在或未归集 |
+| `EXP_NOT_AGGREGATED` | ERROR | 费用未归集 |
+| `ORD_NOT_FOUND` | ERROR | 订单不存在 |
+| `ORD_ALREADY_OCCUPIED` | ERROR | 订单已被占用 |
+| `TASK_NOT_FOUND` | ERROR | 清分任务不存在 |
+| `TASK_STATUS_INVALID` | ERROR | 任务状态不合法 |
+| `ORG_NOT_FOUND` | ERROR | 组织不存在 |
+| `VALIDATE_AMOUNT_MISMATCH` | CRITICAL | 金额校验不通过 |
+| `SYS_DATABASE_ERROR` | CRITICAL | 数据库异常 |
 
-**Description:** 获取审计统计信息
-
-**Query Parameters:**
-
-| 参数名 | 类型 | 必填 | 说明 | 示例 |
-|--------|------|------|------|------|
-| period | string | 否 | 期间过滤 | 202511 |
-| flowStep | string | 否 | 流程步骤过滤 | AGGREGATE |
-| operationType | string | 否 | 操作类型过滤 | SUCCESS |
-| orgId | string | 否 | 主体ID过滤 | ORG001 |
-| taskId | long | 否 | 任务ID过滤 | 1001 |
-| status | string | 否 | 状态过滤 | COMPLETED |
-| startTime | string | 否 | 开始时间 | 2025-11-01 00:00:00 |
-| endTime | string | 否 | 结束时间 | 2025-11-11 23:59:59 |
-
-**Response:**
-
-```json
-{
-  "code": 200,
-  "msg": "操作成功",
-  "data": {
-    "total_count": 50,
-    "success_count": 30,
-    "warning_count": 15,
-    "error_count": 5,
-    "inconsistency_count": 0,
-    "aggregate_count": 20,
-    "allocate_count": 15,
-    "occupy_count": 10,
-    "cancel_count": 5
-  }
-}
-```
-
-**Example Request:**
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/statistics?period=202511"
-```
-
-## Usage Examples
-
-### Example 1: Query all AGGREGATE operations with WARNING
-
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/list?flowStep=AGGREGATE&operationType=WARNING&pageNum=1&pageSize=20"
-```
-
-### Example 2: Query all ERROR operations for a specific period
-
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/list?operationType=ERROR&period=202511&pageNum=1&pageSize=10"
-```
-
-### Example 3: Query all OCCUPY operations for a specific task
-
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/list?flowStep=OCCUPY&taskId=1001"
-```
-
-### Example 4: Get statistics for a specific period
-
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/statistics?period=202511"
-```
-
-### Example 5: Query audit records by time range
-
-```bash
-curl -X GET "http://localhost:8080/clearing/audit/list?startTime=2025-11-01%2000:00:00&endTime=2025-11-11%2023:59:59"
-```
 
